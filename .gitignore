@@ -5,9 +5,7 @@ __pycache__/
 venv/
 *.csv
 *.parquet
-outputs/
-data/
-src/
+
 
 # ---------- 补充 ----------
 # 虚拟环境（补充常见目录名）
