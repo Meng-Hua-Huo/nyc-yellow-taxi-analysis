@@ -1,0 +1,30 @@
+# 现有规则
+__pycache__/
+*.pyc
+.idea/
+venv/
+*.csv
+*.parquet
+outputs/
+data/
+src/
+
+# ---------- 补充 ----------
+# 虚拟环境（补充常见目录名）
+env/
+.venv/
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.swp
+*.swo
+*~
+
+# 环境变量（安全起见）
+.env
+
+# 日志
+*.log
