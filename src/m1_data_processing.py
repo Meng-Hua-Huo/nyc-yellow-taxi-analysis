@@ -132,3 +132,64 @@ def generate_quality_report(df: pd.DataFrame, output_dir: str = "outputs") -> st
     print(f"[M1] 数据质量报告已保存至: {report_file}")
     print(report_content)
     return str(report_file)
+
+
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    数据清洗模块
+    """
+    df_clean = df.copy()
+    initial_count = len(df_clean)
+
+    # 时间逻辑清洗
+    valid_time = (
+            df_clean['tpep_pickup_datetime'].notna() &
+            df_clean['tpep_dropoff_datetime'].notna() &
+            (df_clean['tpep_dropoff_datetime'] > df_clean['tpep_pickup_datetime'])
+    )
+    duration_sec = (df_clean['tpep_dropoff_datetime'] - df_clean['tpep_pickup_datetime']).dt.total_seconds()
+    valid_duration = (duration_sec > 0) & (duration_sec <= 86400)
+    df_clean = df_clean[valid_time & valid_duration]
+
+    # 行程距离清洗
+    df_clean = df_clean[(df_clean['trip_distance'] > 0) & (df_clean['trip_distance'] <= 100)]
+
+    # 车费金额清洗
+    df_clean = df_clean[(df_clean['fare_amount'] > 0) & (df_clean['fare_amount'] <= 500)]
+
+    # 乘客数量清洗
+    df_clean = df_clean[(df_clean['passenger_count'] >= 1) & (df_clean['passenger_count'] <= 6)]
+
+    # 区域ID清洗
+    df_clean = df_clean[
+        df_clean['PULocationID'].between(1, 265) &
+        df_clean['DOLocationID'].between(1, 265)
+        ]
+
+    # 支付方式清洗
+    df_clean = df_clean[df_clean['payment_type'].between(0, 6)]
+
+    # 缺失值兜底处理
+    df_clean = df_clean.dropna()
+
+    # 索引重置与内存回收
+    df_clean = df_clean.reset_index(drop=True)
+
+    # 打印清洗摘要
+    final_count = len(df_clean)
+    drop_rate = ((initial_count - final_count) / initial_count) * 100
+    print(f"[M1] 数据清洗完成 | 原始: {initial_count:,} 行 → 清洗后: {final_count:,} 行 | 剔除率: {drop_rate:.2f}%")
+
+    return df_clean
+
+
+def run_m1() -> pd.DataFrame:
+    """加载 → 报告 → 清洗"""
+    print("\n" + "=" * 50)
+    print("启动 M1 数据处理模块")
+    print("=" * 50)
+    df_raw = load_data()
+    generate_quality_report(df_raw)
+    df_cleaned = clean_data(df_raw)
+    print("M1 模块执行完毕，返回清洗后数据。\n")
+    return df_cleaned

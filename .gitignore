@@ -3,8 +3,7 @@ __pycache__/
 *.pyc
 .idea/
 venv/
-*.csv
-*.parquet
+
 
 
 # ---------- 补充 ----------
