@@ -183,13 +183,38 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     return df_clean
 
 
+def extract_time_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    时间特征提取
+    """
+    df_feat = df.copy()
+
+    # 提取上车小时
+    df_feat['pickup_hour'] = df_feat['tpep_pickup_datetime'].dt.hour.astype('Int8')
+
+    # 提取星期几
+    df_feat['pickup_dayofweek'] = df_feat['tpep_pickup_datetime'].dt.dayofweek.astype('Int8')
+
+    # 生成是否周末标签
+    df_feat['is_weekend'] = (df_feat['pickup_dayofweek'] >= 5).astype('Int8')
+
+    # 生成是否高峰时段标签
+    is_morning_peak = df_feat['pickup_hour'].between(7, 9)
+    is_evening_peak = df_feat['pickup_hour'].between(17, 19)
+    df_feat['is_peak_hour'] = (is_morning_peak | is_evening_peak).astype('Int8')
+
+    print(f"[M1] 时间特征提取完成 | 新增: pickup_hour, pickup_dayofweek, is_weekend, is_peak_hour")
+    return df_feat
+
+
 def run_m1() -> pd.DataFrame:
-    """加载 → 报告 → 清洗"""
-    print("\n" + "=" * 50)
+    """加载 → 报告 → 清洗 → 时间特征"""
+    print("\n" + "="*50)
     print("启动 M1 数据处理模块")
-    print("=" * 50)
+    print("="*50)
     df_raw = load_data()
     generate_quality_report(df_raw)
     df_cleaned = clean_data(df_raw)
-    print("M1 模块执行完毕，返回清洗后数据。\n")
-    return df_cleaned
+    df_featured = extract_time_features(df_cleaned)
+    print("M1 模块执行完毕，返回含时间特征的数据。\n")
+    return df_featured
