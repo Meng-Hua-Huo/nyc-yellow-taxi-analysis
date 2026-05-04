@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from m1_data_processing import run_m1
 from m2_analysis_vis import run_m2
-
+from m3_prediction_model import run_m3
 
 def main():
     print("启动 AI出租车数据分析系统 | 全流程入口")
@@ -17,12 +17,16 @@ def main():
         # 执行 M2 分析可视化
         m2_results = run_m2(df_clean)
 
+        # M3 预测数据集构建
+        m3_data = run_m3(df_clean)
+
         # 打印阶段结果摘要
         print("\n" + "=" * 50)
         print("当前阶段输出摘要:")
         for k, v in m2_results.items():
-            print(f" {k}: {v['conclusion']}")
-            print(f" 图表路径: {v['plot_path']}")
+            print(f"{k}: {v['conclusion']}")
+            print(f"图表路径: {v['plot_path']}")
+        print(f"M3 数据集: 训练集 {m3_data['X_train'].shape[0]} 行 | 测试集 {m3_data['X_test'].shape[0]} 行")
         print("=" * 50)
 
     except Exception as e:
