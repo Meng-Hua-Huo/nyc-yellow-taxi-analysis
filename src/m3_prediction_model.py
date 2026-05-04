@@ -2,6 +2,10 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from pathlib import Path
+import torch
+import torch.nn as nn
+from torch.utils.data import TensorDataset, DataLoader
+import matplotlib.pyplot as plt
 
 
 def build_prediction_dataset(df: pd.DataFrame) -> tuple:
@@ -63,17 +67,142 @@ def build_prediction_dataset(df: pd.DataFrame) -> tuple:
     return X_train_np, X_test_np, y_train_np, y_test_np, scaler, feature_cols
 
 
+class DemandNN(nn.Module):
+    """
+    需求预测 MLP 神经网络
+    """
+
+    def __init__(self, input_dim: int):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+def train_nn_model(X_train, y_train, X_test, y_test, epochs=50, batch_size=512, lr=0.001, patience=5) -> dict:
+    """
+    训练循环与 Loss 曲线监控
+    """
+    print("[M3] 正在初始化并训练 PyTorch 神经网络...")
+
+    # 设备与随机种子配置
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    torch.manual_seed(42)
+    np.random.seed(42)
+
+    # 构建 DataLoader
+    train_dataset = TensorDataset(torch.tensor(X_train), torch.tensor(y_train).unsqueeze(1))
+    val_dataset = TensorDataset(torch.tensor(X_test), torch.tensor(y_test).unsqueeze(1))
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=False)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
+    # 模型、损失函数与优化器初始化
+    model = DemandNN(input_dim=X_train.shape[1]).to(device)
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    train_losses, val_losses = [], []
+    best_val_loss = float('inf')
+    patience_counter = 0
+    best_model_state = None
+
+    # 训练循环
+    for epoch in range(epochs):
+        model.train()
+        epoch_train_loss = 0.0
+        for X_batch, y_batch in train_loader:
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+            optimizer.zero_grad()
+            preds = model(X_batch)
+            loss = criterion(preds, y_batch)
+            loss.backward()
+            optimizer.step()
+            epoch_train_loss += loss.item() * X_batch.size(0)
+        epoch_train_loss /= len(train_dataset)
+
+        # 验证阶段
+        model.eval()
+        epoch_val_loss = 0.0
+        with torch.no_grad():
+            for X_val, y_val in val_loader:
+                X_val, y_val = X_val.to(device), y_val.to(device)
+                val_preds = model(X_val)
+                epoch_val_loss += criterion(val_preds, y_val).item() * X_val.size(0)
+        epoch_val_loss /= len(val_dataset)
+
+        train_losses.append(epoch_train_loss)
+        val_losses.append(epoch_val_loss)
+
+        if (epoch + 1) % 5 == 0 or epoch == 0:
+            print(
+                f"  Epoch [{epoch + 1:02d}/{epochs}] | Train Loss: {epoch_train_loss:.4f} | Val Loss: {epoch_val_loss:.4f}")
+
+        # 早停机制
+        if epoch_val_loss < best_val_loss:
+            best_val_loss = epoch_val_loss
+            patience_counter = 0
+            best_model_state = model.state_dict().copy()
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print(f"早停触发于 Epoch {epoch + 1}，验证Loss已收敛。")
+                break
+
+    # 恢复最佳权重并保存模型
+    model.load_state_dict(best_model_state)
+    base_dir = Path(__file__).resolve().parent.parent
+    model_path = base_dir / "outputs" / "nn_demand_predictor.pth"
+    torch.save(model.state_dict(), model_path)
+    print(f"[M3] 最佳模型权重已保存至: {model_path.name}")
+
+    # 绘制 Loss 曲线
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(train_losses, label='Train Loss', marker='o', markersize=4, linewidth=1.5)
+    ax.plot(val_losses, label='Validation Loss', marker='s', markersize=4, linewidth=1.5)
+    ax.set_title('Neural Network Training & Validation Loss Curve', fontsize=13, pad=10)
+    ax.set_xlabel('Epoch', fontsize=11)
+    ax.set_ylabel('MSE Loss', fontsize=11)
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.legend()
+
+    loss_plot_path = base_dir / "outputs" / "M3_nn_loss_curve.png"
+    plt.tight_layout()
+    plt.savefig(loss_plot_path, dpi=150)
+    plt.close()
+    print(f"[M3] Loss曲线已保存至: {loss_plot_path.name}")
+
+    return {
+        'model': model,
+        'device': device,
+        'train_losses': train_losses,
+        'val_losses': val_losses,
+        'model_path': str(model_path),
+        'loss_plot_path': str(loss_plot_path)
+    }
+
+
 def run_m3(df: pd.DataFrame) -> dict:
     """
-    模块统一调度入口
+    数据集构建 → NN训练
     """
     print("\n" + "=" * 50)
     print("启动 M3 预测模型模块")
     print("=" * 50)
     X_train, X_test, y_train, y_test, scaler, features = build_prediction_dataset(df)
-    print("M3 阶段1&2执行完毕，数据集已就绪。\n")
+    nn_res = train_nn_model(X_train, y_train, X_test, y_test)
+    print("M3 阶段3.1~3.4执行完毕，NN模型已训练完成。\n")
     return {
         'X_train': X_train, 'X_test': X_test,
         'y_train': y_train, 'y_test': y_test,
-        'scaler': scaler, 'features': features
+        'scaler': scaler, 'features': features,
+        'nn_model': nn_res['model'],
+        'nn_device': nn_res['device'],
+        'nn_paths': {'model': nn_res['model_path'], 'loss_curve': nn_res['loss_plot_path']}
     }
