@@ -193,7 +193,7 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     # 打印清洗摘要
     final_count = len(df_clean)
     drop_rate = ((initial_count - final_count) / initial_count) * 100
-    print(f"[M1] 🧹 数据清洗完成 | 原始: {initial_count:,} 行 → 清洗后: {final_count:,} 行 | 剔除率: {drop_rate:.2f}%")
+    print(f"[M1] 数据清洗完成 | 原始: {initial_count:,} 行 → 清洗后: {final_count:,} 行 | 剔除率: {drop_rate:.2f}%")
 
     return df_clean
 
