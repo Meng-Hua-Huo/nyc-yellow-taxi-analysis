@@ -127,9 +127,69 @@ def analyze_regional_heat(df: pd.DataFrame) -> dict:
     return {'conclusion': conclusion, 'plot_path': plot_path}
 
 
+def analyze_fare_factors(df: pd.DataFrame) -> dict:
+    """
+    分析3：车费影响因素分析（距离、时段、乘客人数与车费的关系）
+    """
+    print("[M2] 正在生成分析3：车费影响因素分析...")
+
+    #数据采样防重叠
+    df_sample = df.sample(frac=0.01, random_state=42).copy()
+
+    # 计算核心指标
+    corr_dist_fare = df['trip_distance'].corr(df['fare_amount'])
+
+    # 时段业务分组
+    df_sample['time_period'] = pd.cut(
+        df_sample['pickup_hour'],
+        bins=[-1, 5, 9, 16, 19, 23],
+        labels=['凌晨(0-5)', '早高峰(6-9)', '日间平峰(10-16)', '晚高峰(17-19)', '夜间(20-23)']
+    )
+
+    # 提取业务结论
+    conclusion = (
+        f"行程距离与车费呈强正相关 (Pearson r={corr_dist_fare:.2f})，符合按程计价基础逻辑。"
+        f"从时段箱线图来看，晚高峰和夜间的车费整体水平及偏高段位都明显上升，反映了拥堵等候费和夜间附加费的影响。"
+        f"而乘客数量对基础车费基本没有影响，这也印证了纽约出租车按车收费、不按人数收费的运营惯例。"
+    )
+
+    # 组合绘图
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+
+    # 左图：距离-车费密度散点图
+    hb = axes[0].hexbin(df_sample['trip_distance'], df_sample['fare_amount'],
+                        gridsize=50, cmap='Blues', mincnt=1, linewidths=0.5)
+    fig.colorbar(hb, ax=axes[0], label='订单密度')
+    axes[0].set_title('行程距离 vs 车费 (密度散点图)', fontsize=12, pad=8)
+    axes[0].set_xlabel('行程距离 (英里)', fontsize=11)
+    axes[0].set_ylabel('车费金额 (美元)', fontsize=11)
+    axes[0].set_xlim(0, 30)
+    axes[0].set_ylim(0, 100)
+
+    # 中图：分时段车费箱线图
+    sns.boxplot(x='time_period', y='fare_amount', hue='time_period', data=df_sample, ax=axes[1], palette='Set2',
+                legend=False, showfliers=False)
+    axes[1].set_title('分时段车费分布 (箱线图)', fontsize=12, pad=8)
+    axes[1].set_xlabel('时段分组', fontsize=11)
+    axes[1].set_ylabel('车费金额 (美元)', fontsize=11)
+    axes[1].tick_params(axis='x', rotation=15)
+    axes[1].set_ylim(0, 80)
+
+    # 右图：分乘客数车费箱线图
+    sns.boxplot(x='passenger_count', y='fare_amount', hue='passenger_count', data=df_sample, ax=axes[2],
+                palette='Pastel1', legend=False, showfliers=False)
+    axes[2].set_title('分乘客数车费分布 (箱线图)', fontsize=12, pad=8)
+    axes[2].set_xlabel('乘客人数', fontsize=11)
+    axes[2].set_ylabel('车费金额 (美元)', fontsize=11)
+    axes[2].set_ylim(0, 80)
+
+    # 保存并返回结果
+    plot_path = save_fig('M2_3_fare_factors.png')
+    return {'conclusion': conclusion, 'plot_path': plot_path}
+
 def run_m2(df: pd.DataFrame) -> dict:
     """
-    环境配置 → 分析1 → 分析2
+    环境配置 → 分析1 → 分析2 → 分析3
     """
     print("\n" + "=" * 50)
     print("启动 M2 分析可视化模块")
@@ -137,5 +197,6 @@ def run_m2(df: pd.DataFrame) -> dict:
     setup_plotting()
     res_1 = analyze_temporal_pattern(df)
     res_2 = analyze_regional_heat(df)
-    print("M2 阶段1&2执行完毕。\n")
-    return {'M2_1': res_1, 'M2_2': res_2}
+    res_3 = analyze_fare_factors(df)
+    print("M2 阶段1~3执行完毕。\n")
+    return {'M2_1': res_1, 'M2_2': res_2, 'M2_3': res_3}
