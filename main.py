@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
-
+from dotenv import load_dotenv
+load_dotenv()
 # 将 src/ 加入模块搜索路径
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 

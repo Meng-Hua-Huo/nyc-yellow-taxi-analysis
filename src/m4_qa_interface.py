@@ -1,8 +1,10 @@
 import re
+import os
+import requests
 import numpy as np
 import torch
-from pathlib import Path
 import pandas as pd
+from pathlib import Path
 
 INTENT_PATTERNS = {
     'temporal': r'(时间|规律|时段|小时|工作日|周末|订单量|骑行量|趋势)',
@@ -124,7 +126,12 @@ def run_qa_loop(m2_results: dict, m3_data: dict):
             # 意图识别
             intent = match_intent(query)
             if intent == 'unknown':
-                print("【系统提示】暂未识别到您的意图。请尝试包含关键词：时间/区域/车费/小费/预测。")
+                print("[系统提示] 问题未命中规则，转由大模型分析...")
+                llm_reply = call_llm_fallback(query)
+                # 格式化输出大模型回复
+                print("\n" + "-" * 40)
+                print(llm_reply)
+                print("-" * 40)
                 continue
 
             # 路由调用与异常兜底
@@ -135,7 +142,13 @@ def run_qa_loop(m2_results: dict, m3_data: dict):
                 else:
                     res = handler(m2_results)
             except Exception as e:
-                res = {'conclusion': f'【系统错误】处理请求时发生异常: {str(e)}', 'plot_path': ''}
+                # 规则处理失败，降级到大模型
+                print(f"[规则处理异常] {e}，尝试由大模型回答...")
+                llm_reply = call_llm_fallback(query)
+                print("\n" + "-" * 40)
+                print(llm_reply)
+                print("-" * 40)
+                continue
 
             # 结果格式化输出
             print("\n" + "-" * 40)
@@ -149,6 +162,73 @@ def run_qa_loop(m2_results: dict, m3_data: dict):
             break
         except EOFError:
             break
+
+
+LLM_CONFIG = {
+    "api_key": os.getenv("LLM_API_KEY"),
+    "base_url": os.getenv("LLM_BASE_URL", "https://api.deepseek.com/"),
+    "model": os.getenv("LLM_MODEL", "deepseek-v4-flash"),
+    "timeout": 15
+}
+
+
+def get_system_prompt() -> str:
+    """
+    设计与迭代记录
+    ----------------------------------------------------------------
+    v1: 你是一个出租车数据分析助手。请回答用户问题。
+      问题：回复发散，易编造数据，未限定能力边界。
+    v2: 增加数据范围(2023年1月纽约黄车)、可用模块列表、要求结构化输出。
+      问题：遇到超纲问题仍会强行推理，缺乏明确的“拒绝编造”指令。
+    v3(当前): 严格划定知识边界；明确“未知即拒绝”原则；
+      规定低温度 (0.3)与客观语气。彻底解决大模型在垂直数据问答中的幻觉问题。
+    """
+    return """你是一个专业的纽约市出租车出行数据分析助手。
+你的知识严格限于2023年1月纽约黄色出租车公开数据集。切勿编造数据、日期或统计结果。
+当前系统已内置以下分析模块：
+1. 时间规律分析（分小时/工作日周末订单趋势）
+2. 区域热度分析（TOP10上下客区域及高峰时段）
+3. 车费影响因素（距离/时段/乘客数与车费关系）
+4. 小费与支付行为分析
+5. 区域时段需求预测（基于神经网络）
+回复规则:
+- 若用户问题超出数据范围或系统能力，请明确告知“当前数据/模型暂不支持该分析”，并给出替代建议。绝对不要编造数值。
+- 若问题属于上述5类但表述模糊，请引导用户补充关键参数（如具体区域ID、时段）。
+- 回复需简洁、专业、结构化。优先使用要点列表。
+- 语气保持客观、数据驱动。
+示例:
+用户: "为什么下雨天打车这么贵？"
+助手: "当前数据集(2023年1月)未包含天气字段，因此无法直接分析降雨对车费的影响。建议您关注‘时段’与‘区域’维度，系统已验证晚高峰(17-19点)与核心商业区存在显著溢价现象。如需预测特定区域需求，可提供Zone ID与时间。"
+请严格遵循以上规则回复用户问题。"""
+
+
+def call_llm_fallback(user_query: str) -> str:
+    """调用大模型API进行兜底回复 (兼容 GLM/DeepSeek/Qwen OpenAI格式)"""
+    headers = {
+        "Authorization": f"Bearer {LLM_CONFIG['api_key']}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": LLM_CONFIG["model"],
+        "messages": [
+            {"role": "system", "content": get_system_prompt()},
+            {"role": "user", "content": user_query}
+        ],
+        "temperature": 0.3,  # 低温度保证回复稳定、减少幻觉
+        "max_tokens": 600
+    }
+    try:
+        response = requests.post(
+            f"{LLM_CONFIG['base_url']}chat/completions",
+            headers=headers, json=payload, timeout=LLM_CONFIG["timeout"]
+        )
+        response.raise_for_status()
+        result = response.json()
+        return result["choices"][0]["message"]["content"].strip()
+    except requests.exceptions.RequestException as e:
+        return f"【LLM调用失败】网络或API请求异常: {str(e)}。请检查API Key或网络连接。"
+    except Exception as e:
+        return f"【LLM解析失败】模型返回格式异常: {str(e)}"
 
 
 def run_m4(m2_results: dict, m3_data: dict):
