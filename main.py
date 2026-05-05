@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from m1_data_processing import run_m1
 from m2_analysis_vis import run_m2
 from m3_prediction_model import run_m3
+from m4_qa_interface import run_m4
 
 def main():
     print("启动 AI出租车数据分析系统 | 全流程入口")
@@ -19,6 +20,9 @@ def main():
 
         # M3 预测数据集构建
         m3_data = run_m3(df_clean)
+
+        # 启动 M4 问答循环
+        run_m4(m2_results, m3_data)
 
         # 打印阶段结果摘要
         print("\n" + "=" * 50)
