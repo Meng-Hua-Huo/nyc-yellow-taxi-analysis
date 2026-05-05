@@ -26,7 +26,8 @@ def main():
         for k, v in m2_results.items():
             print(f"{k}: {v['conclusion']}")
             print(f"图表路径: {v['plot_path']}")
-        print(f"M3 数据集: 训练集 {m3_data['X_train'].shape[0]} 行 | 测试集 {m3_data['X_test'].shape[0]} 行")
+        print(f"M3 模型评估: NN测试集 MAE={m3_data['metrics']['nn_mae']:.3f} | "
+              f"RF测试集 MAE={m3_data['metrics']['rf_mae']:.3f}")
         print("=" * 50)
 
     except Exception as e:

@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 from pathlib import Path
 import torch
 import torch.nn as nn
@@ -188,21 +190,89 @@ def train_nn_model(X_train, y_train, X_test, y_test, epochs=50, batch_size=512, 
     }
 
 
+def evaluate_and_compare_models(nn_model, device, X_train, y_train, X_test, y_test, features) -> dict:
+    """
+    NN测试集评估 + 随机森林基线对比 + 优劣分析报告
+    """
+    print("[M3] 正在执行模型评估与对比实验...")
+    base_dir = Path(__file__).resolve().parent.parent
+    out_dir = base_dir / "outputs"
+
+    # NN 测试集推理与评估
+    nn_model.eval()
+    with torch.no_grad():
+        nn_preds = nn_model(torch.tensor(X_test).to(device)).cpu().numpy().flatten()
+    nn_mae = mean_absolute_error(y_test, nn_preds)
+    nn_rmse = np.sqrt(mean_squared_error(y_test, nn_preds))
+    print(f"[M3] NN 测试集评估 | MAE: {nn_mae:.3f} | RMSE: {nn_rmse:.3f}")
+
+    # 随机森林基线训练与评估
+    rf = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
+    rf.fit(X_train, y_train)
+    rf_preds = rf.predict(X_test)
+    rf_mae = mean_absolute_error(y_test, rf_preds)
+    rf_rmse = np.sqrt(mean_squared_error(y_test, rf_preds))
+    print(f"[M3]  RF 测试集评估 | MAE: {rf_mae:.3f} | RMSE: {rf_rmse:.3f}")
+
+    # 生成对比分析报告
+    better_model = "神经网络(NN)" if nn_rmse < rf_rmse else "随机森林(RF)"
+    report_lines = [
+        "=" * 60, "M3 预测模型对比实验报告", "=" * 60,
+        f"测试集指标对比:",
+        f"  • 神经网络(NN) | MAE: {nn_mae:.3f} | RMSE: {nn_rmse:.3f}",
+        f"  • 随机森林(RF) | MAE: {rf_mae:.3f} | RMSE: {rf_rmse:.3f}",
+        f"  • 综合表现更优: {better_model}",
+        "",
+        "算法优劣分析:",
+        "神经网络 (NN) 优势：",
+        "  1. 模型有能力自动发现区域、时段和历史需求等变量之间复杂的相互影响关系，不用人工去猜测或事先设定规则。",
+        "  2. 训练时直接拿预测值与真实值的差距作为优化目标，再配合一种能自动调整步长的参数更新方式，让学习过程更加平稳，不易跑偏。",
+        "  3. 这个框架很容易扩展：比如可以轻松加入专门处理“区域编号”这类类别信息的模块，或者换成更复杂的结构来捕捉更长的时间趋势。",
+        "神经网络 (NN) 劣势：",
+        "  1. 模型效果对参数设置（如学习快慢、每次喂入的数据量、网络层数）比较敏感，稍有不慎就容易过度记忆数据规律，"
+        "  通常需要借助提前停止训练等技巧来防止这类问题，整体调起来比较麻烦。",
+        "  2. 模型内部就像一个黑箱，很难直接看出各个因素到底起了多大作用，不方便追溯和解释具体原因，对交通业务的分析归因来说不太友好。",
+        "随机森林 (RF) 优势：",
+        "  1. 模型通过集成多棵树并取平均或投票，不容易受异常值和噪声干扰，在测试集上表现稳定。",
+        "  2. 不需要对特征做标准化等预处理，使用默认参数通常就能得到不错的结果，训练也很快。",
+        "  3. 能够直接输出每个特征的重要性，让人清楚地看到历史需求、时段等因素对预测结果的贡献有多大。",
+        "随机森林 (RF) 劣势：",
+        "  1. 模型高度依赖训练数据中的历史规律，对于超出历史范围的极端情况（如突发大型活动带来的需求暴涨），难以做出合理预判。",
+        "  2. 树形结构在捕捉连续变量之间精细的渐变关系时能力有限，预测结果在细分的时空划分上容易出现不连贯的跳跃。",
+        "=" * 60
+    ]
+    report_path = out_dir / "M3_model_comparison.txt"
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write("\n".join(report_lines))
+    print(f"[M3] 对比报告已保存至: {report_path.name}")
+
+    return {
+        'nn_mae': nn_mae, 'nn_rmse': nn_rmse,
+        'rf_mae': rf_mae, 'rf_rmse': rf_rmse,
+        'rf_model': rf,
+        'report_path': str(report_path)
+    }
+
+
 def run_m3(df: pd.DataFrame) -> dict:
-    """
-    数据集构建 → NN训练
-    """
+    """数据集 → NN训练 → 评估对比"""
     print("\n" + "=" * 50)
     print("启动 M3 预测模型模块")
     print("=" * 50)
     X_train, X_test, y_train, y_test, scaler, features = build_prediction_dataset(df)
     nn_res = train_nn_model(X_train, y_train, X_test, y_test)
-    print("M3 阶段3.1~3.4执行完毕，NN模型已训练完成。\n")
+    comp_res = evaluate_and_compare_models(nn_res['model'], nn_res['device'], X_train, y_train, X_test, y_test,
+                                           features)
+    print("M3 模块全量执行完毕 (NN训练+评估+RF对比)。\n")
+
+    # 修复键名不匹配
+    loss_curve_path = nn_res.get('loss_plot') or nn_res.get('loss_plot_path', '')
+
     return {
-        'X_train': X_train, 'X_test': X_test,
-        'y_train': y_train, 'y_test': y_test,
-        'scaler': scaler, 'features': features,
-        'nn_model': nn_res['model'],
-        'nn_device': nn_res['device'],
-        'nn_paths': {'model': nn_res['model_path'], 'loss_curve': nn_res['loss_plot_path']}
+        'X_test': X_test, 'y_test': y_test, 'scaler': scaler, 'features': features,
+        'nn_model': nn_res['model'], 'nn_device': nn_res['device'],
+        'nn_paths': {'loss_curve': loss_curve_path},
+        'metrics': {'nn_mae': comp_res['nn_mae'], 'nn_rmse': comp_res['nn_rmse'],
+                    'rf_mae': comp_res['rf_mae'], 'rf_rmse': comp_res['rf_rmse']},
+        'report_path': comp_res['report_path']
     }
